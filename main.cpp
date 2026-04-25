@@ -18,14 +18,13 @@ public:
         workers_.reserve(num_threads);
         for (size_t i = 0; i < num_threads; ++i)
         {
-            workers_.emplace_back([this]()
-                                  { worker_loop(); });
+            workers_.emplace_back(&TaskScheduler::worker_loop, this);
         }
     };
     ~TaskScheduler()
     {
         {
-            std::unique_lock<std::mutex> locK(queue_mutex_);
+            std::unique_lock<std::mutex> lock(queue_mutex_);
             stop_.store(true);
         }
         cv_.notify_all();
