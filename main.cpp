@@ -37,7 +37,30 @@ public:
     };
 
     template <class F, class... Args>
-    auto submit(F &&f, Args &&...args) -> std::future<typename std::invoke_result<F, Args...>::type>;
+    auto submit(F &&f, Args &&...args) -> std::future<typename std::invoke_result<F, Args...>::type>
+    {
+
+        using ReturnType = typename std::invoke_result<F, Args...>::type;
+
+        auto task = std::make_shared<std::packaged_task<ReturnType()>>(
+            std::bind(std::forward<F>(f), std::forward<Args>(args)...));
+
+        std::future<ReturnType> result = task->get_future();
+
+        {
+            std::unique_lock<std::mutex> lock(queue_mutex_);
+
+            if (stop_.load())
+            {
+                throw std::runtime_error("submit() called on stopped scheduler");
+            }
+
+            task_queue_.emplace([task]()
+                                { (*task)(); });
+        }
+        cv_.notify_one();
+        return result;
+    };
 
     // Deleted copy/move
     TaskScheduler(const TaskScheduler &) = delete;
@@ -72,8 +95,18 @@ private:
     };
 };
 
-
 int main()
 {
+    TaskScheduler pool(4);
+
+    auto fut1 = pool.submit([](int a, int b)
+                {   std::this_thread::sleep_for(std::chrono::microseconds(500));
+                    return a + b; }, 10, 20);
+
+    auto fut2 = pool.submit([]()
+                { return 42; });
+    
+    std::cout << "R1 : " << fut1.get() << std::endl;
+    std::cout << "R2 : " << fut2.get() << std::endl;
     return 0;
 }
